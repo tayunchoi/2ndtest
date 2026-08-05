@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>글림 데이터 구조 도구 (rescue)</title>
+<style>
+ body{font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;margin:0;background:#f4f2fb;color:#231d45}
+ .wrap{max-width:900px;margin:0 auto;padding:18px 16px 80px}
+ h1{font-size:20px;margin:8px 0 4px}
+ h2{font-size:16px;margin:0 0 10px}
+ .card{background:#fff;border:2px solid #ded8f5;border-radius:14px;padding:14px 14px 16px;margin:14px 0;box-shadow:0 4px 14px rgba(70,50,150,.06)}
+ .warn{background:#fff5f5;border-color:#ffd0d0}
+ button{font:inherit;font-weight:700;padding:10px 14px;margin:4px 6px 4px 0;border-radius:10px;border:2px solid #2e2566;background:#6a5ae0;color:#fff;cursor:pointer}
+ button.sec{background:#fff;color:#2e2566}
+ button.danger{background:#e0534a;border-color:#8c2b25}
+ input{font:inherit;padding:8px 10px;border-radius:8px;border:2px solid #ded8f5;width:120px}
+ pre{background:#1e1b33;color:#d7f0ff;padding:10px;border-radius:10px;overflow:auto;max-height:340px;font-size:12px;white-space:pre-wrap;word-break:break-all}
+ table{border-collapse:collapse;width:100%;font-size:13px}
+ td,th{border-bottom:1px solid #eee;padding:6px 4px;text-align:left;vertical-align:top}
+ .k{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#5b3fd0;word-break:break-all}
+ .ok{color:#1b8b4b;font-weight:700}.bad{color:#c62d22;font-weight:700}
+ small{color:#6b6590}
+ .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>글림 데이터 구조 도구</h1>
+<small>반드시 <b>게임과 같은 주소(같은 GitHub Pages 사이트)</b> 안에 올려서 열어야 합니다. 주소가 다르면 저장소가 달라서 아무것도 보이지 않습니다.</small>
+
+<div class="card warn">
+<h2>⚠️ 순서를 지키세요</h2>
+<div>1) 먼저 <b>1단계 백업</b>을 받으세요. 2) 그다음 서버 조회. 3) 복구는 마지막.<br>
+게임(index.html)을 다시 열어 학생 번호를 입력하면 남아 있던 기록도 지워질 수 있습니다. <b>복구 전에는 게임을 열지 마세요.</b></div>
+</div>
+
+<div class="card" style="border-color:#8fd7a8;background:#f4fdf7">
+<h2>⚡ 빠른 복구 · 자동 백업/학생 서랍</h2>
+<small>게임이 학생 번호를 바꿀 때 자동으로 남긴 스냅샷입니다. 사라진 학생의 항목을 찾아 복구하세요.</small>
+<div id="bakList" style="margin-top:8px"><small>불러오는 중…</small></div>
+</div>
+
+<div class="card">
+<h2>1단계 · 지금 태블릿에 남아 있는 데이터 백업</h2>
+<div class="row">
+ <button onclick="dump()">저장소 전체 보기</button>
+ <button class="sec" onclick="download()">JSON 파일로 저장</button>
+ <button class="sec" onclick="copyAll()">전체 복사</button>
+</div>
+<div id="lsInfo"></div>
+<table id="lsTable"></table>
+</div>
+
+<div class="card">
+<h2>2단계 · 서버(Supabase)에 남은 기록 조회</h2>
+<div class="row">
+ 학생 번호 <input id="sid" value="7">
+ <button onclick="pull()">서버에서 불러오기</button>
+ <button class="sec" onclick="downloadServer()">서버 결과 JSON 저장</button>
+</div>
+<div id="srvOut"><small>anon 키에 조회(SELECT) 권한이 없으면 401/permission denied가 뜹니다. 그 경우 Supabase 대시보드 → Table Editor에서 직접 확인해야 합니다.</small></div>
+<pre id="srvLog" style="display:none"></pre>
+</div>
+
+<div class="card">
+<h2>3단계 · 복구</h2>
+<small>어떤 버튼이든 실행 전에 현재 저장소를 자동으로 한 번 더 백업합니다(glim_rescue_backup_*).</small>
+<div class="row" style="margin-top:8px">
+ <button class="sec" onclick="restoreProfile()">서버 프로필 → 태블릿에 복원</button>
+ <button class="sec" onclick="restoreProgress()">서버 기록 → 단계·별 복원</button>
+ <button class="sec" onclick="fixSid()">학생 번호 각인만 고치기</button>
+</div>
+<div id="fixOut"></div>
+<h2 style="margin-top:16px">수동 복원 (백업 JSON 붙여넣기)</h2>
+<textarea id="pasteBox" rows="4" style="width:100%;font-size:12px" placeholder='{"glim_app_prog_v173":"...", ...}'></textarea>
+<div><button class="danger" onclick="restorePaste()">붙여넣은 내용으로 덮어쓰기</button></div>
+</div>
+
+</div>
+<script>
+var CFG={url:'https://citntimephlbdmntegia.supabase.co',
+ anonKey:'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNpdG50aW1lcGhsYmRtbnRlZ2lhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ0NTU4MTMsImV4cCI6MjEwMDAzMTgxM30.zN5rpEuQPliwyqxV9I7pBp1hsd1yPc_DO6qTJLQtrlg'};
+var TABLES=['glim_profiles','glim_sessions','glim_l0_events','glim_gateway_events','glim_checkpoint_events','glim_rx_events'];
+var SERVER={};
+
+function all(){var o={};for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);o[k]=localStorage.getItem(k);}return o;}
+function dump(){
+  var o=all(),ks=Object.keys(o).sort();
+  document.getElementById('lsInfo').innerHTML='<p>이 주소의 저장소에 <b>'+ks.length+'개</b> 항목이 있습니다.'+
+    (ks.length?'':' <span class="bad">비어 있습니다 — 이 주소에는 데이터가 없습니다. 예전에 쓰던 주소(다른 링크/북마크)로 열어서 다시 확인해 보세요.</span>')+'</p>';
+  var h='<tr><th>키</th><th>크기</th><th>내용 미리보기</th></tr>';
+  ks.forEach(function(k){h+='<tr><td class="k">'+esc(k)+'</td><td>'+o[k].length+'</td><td><small>'+esc(o[k].slice(0,160))+'</small></td></tr>';});
+  document.getElementById('lsTable').innerHTML=h;
+}
+function esc(s){return String(s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+function saveFile(name,txt){
+  var b=new Blob([txt],{type:'application/json'}),u=URL.createObjectURL(b),a=document.createElement('a');
+  a.href=u;a.download=name;document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(u);a.remove();},500);
+}
+function stamp(){var d=new Date();return d.getFullYear()+''+('0'+(d.getMonth()+1)).slice(-2)+('0'+d.getDate()).slice(-2)+'_'+('0'+d.getHours()).slice(-2)+('0'+d.getMinutes()).slice(-2);}
+function download(){saveFile('glim_backup_'+stamp()+'.json',JSON.stringify(all(),null,1));}
+function copyAll(){var t=JSON.stringify(all());if(navigator.clipboard)navigator.clipboard.writeText(t).then(function(){alert('복사했습니다 ('+t.length+'자)');},function(){prompt('직접 복사하세요',t);});else prompt('직접 복사하세요',t);}
+function autoBackup(){try{localStorage.setItem('glim_rescue_backup_'+Date.now(),JSON.stringify(all()));}catch(e){}}
+
+function req(path){
+  return fetch(CFG.url.replace(/\/$/,'')+'/rest/v1/'+path,{headers:{apikey:CFG.anonKey,Authorization:'Bearer '+CFG.anonKey}})
+    .then(function(r){return r.text().then(function(t){
+      if(!r.ok)throw new Error(r.status+' '+t.slice(0,200));
+      try{return JSON.parse(t);}catch(e){return [];}});});
+}
+function pull(){
+  var sid=String(document.getElementById('sid').value||'').trim();
+  var out=document.getElementById('srvOut');out.innerHTML='<p>불러오는 중…</p>';SERVER={};
+  var lines=[];
+  Promise.all(TABLES.map(function(t){
+    return req(t+'?student_id=eq.'+encodeURIComponent(sid)+'&select=*&limit=5000')
+      .then(function(rows){SERVER[t]=rows;lines.push('<tr><td class="k">'+t+'</td><td class="ok">'+rows.length+'건</td></tr>');})
+      .catch(function(e){SERVER[t]={error:String(e.message||e)};lines.push('<tr><td class="k">'+t+'</td><td class="bad">'+esc(e.message||e)+'</td></tr>');});
+  })).then(function(){
+    var h='<table>'+lines.sort().join('')+'</table>';
+    var l0=SERVER['glim_l0_events'];
+    if(l0&&l0.length){
+      var mx=0,sess={},trials=0;
+      l0.forEach(function(r){var p=r.payload||{};if(p.stage>mx)mx=p.stage;if(r.session_id)sess[r.session_id]=1;trials+=(p.trial_count||0);});
+      h+='<p><b>단어나라</b> — 최대 도달 단계 <b>'+mx+'</b>/104, 세션 '+Object.keys(sess).length+'회, 문항 '+trials+'개 기록됨.</p>';
+    }
+    var pr=SERVER['glim_profiles'];
+    if(pr&&pr.length)h+='<p>프로필 스냅샷 '+pr.length+'건 (가장 최근 것만 서버에 남습니다).</p>';
+    out.innerHTML=h;
+    var log=document.getElementById('srvLog');log.style.display='block';log.textContent=JSON.stringify(SERVER,null,1).slice(0,20000);
+  });
+}
+function downloadServer(){saveFile('glim_server_'+document.getElementById('sid').value+'_'+stamp()+'.json',JSON.stringify(SERVER,null,1));}
+
+function restoreProfile(){
+  var pr=SERVER['glim_profiles'];
+  if(!pr||!pr.length||!pr[0].profile){alert('서버 프로필이 없습니다. 먼저 2단계를 실행하세요.');return;}
+  if(!confirm('서버의 인지프로필을 태블릿에 덮어씁니다. 진행할까요?'))return;
+  autoBackup();
+  var best=pr[0];
+  pr.forEach(function(r){if(String(r.updated_at||'')>String(best.updated_at||''))best=r;});
+  localStorage.setItem('glim_m2_prof_v1',JSON.stringify(best.profile));
+  localStorage.setItem('glim_sid',String(document.getElementById('sid').value).trim());
+  // L0 원시 기록도 서버 이벤트에서 되살린다
+  var l0=SERVER['glim_l0_events']||[],rows=[];
+  l0.forEach(function(r){var t=(r.payload||{}).trials;if(t&&t.length)rows=rows.concat(t);});
+  if(rows.length){rows.sort(function(a,b){return (a.t||0)-(b.t||0);});localStorage.setItem('glim_m2_L0_v1',JSON.stringify(rows));}
+  document.getElementById('fixOut').innerHTML='<p class="ok">프로필 복원 완료. 원시 기록 '+rows.length+'행 복원.</p>';
+}
+function restoreProgress(){
+  var l0=SERVER['glim_l0_events'];
+  if(!l0||!l0.length){alert('서버 기록이 없습니다. 먼저 2단계를 실행하세요.');return;}
+  var cleared={};                       // 전역 단계번호(1~104) → 별
+  l0.forEach(function(r){var p=r.payload||{};if(p.stage){var s=p.accuracy||0;cleared[p.stage]=s>=0.9?3:(s>=0.7?2:1);}});
+  var maps=[['단어나라1',0,39],['단어나라2',39,39],['단어나라3',78,26]];
+  if(!confirm('서버 기록으로 단어나라 단계·별을 복원합니다. 진행할까요?'))return;
+  autoBackup();
+  var raw=localStorage.getItem('glim_app_prog_v173'),prog={};
+  try{prog=raw?JSON.parse(raw):{};}catch(e){prog={};}
+  ['단어나라','음절나라','음소나라','단어나라1','단어나라2','단어나라3','음절나라1','음절나라2','음절나라3','음소나라1','음소나라2','음소나라3'].forEach(function(n){if(!prog[n])prog[n]={unlocked:1,stars:{}};});
+  var n=0;
+  maps.forEach(function(m){
+    var name=m[0],off=m[1],cap=m[2],st=prog[name].stars||{},mx=-1;
+    for(var i=0;i<cap;i++){var g=off+i+1;if(cleared[g]!=null){st[i]=cleared[g];n++;if(i>mx)mx=i;}}
+    prog[name].stars=st;
+    if(mx>=0)prog[name].unlocked=Math.max(prog[name].unlocked||1,Math.min(cap,mx+2));
+  });
+  localStorage.setItem('glim_app_prog_v173',JSON.stringify(prog));
+  localStorage.setItem('glim_sid',String(document.getElementById('sid').value).trim());
+  document.getElementById('fixOut').innerHTML='<p class="ok">단계 '+n+'개 복원 완료. 게임을 새로고침한 뒤, 첫 화면에서 <b>같은 학생 번호</b>를 입력하세요.</p>';
+}
+function fixSid(){
+  var v=String(document.getElementById('sid').value).trim();
+  autoBackup();
+  localStorage.setItem('glim_sid',v);
+  try{var p=JSON.parse(localStorage.getItem('glim_m2_prof_v1')||'null');if(p){p.sid=v;localStorage.setItem('glim_m2_prof_v1',JSON.stringify(p));}}catch(e){}
+  document.getElementById('fixOut').innerHTML='<p class="ok">학생 번호를 '+esc(v)+'(으)로 각인했습니다. 이제 같은 번호로 들어가면 초기화되지 않습니다.</p>';
+}
+function restorePaste(){
+  var t=document.getElementById('pasteBox').value.trim();if(!t)return;
+  var o;try{o=JSON.parse(t);}catch(e){alert('JSON 형식이 아닙니다');return;}
+  if(!confirm(Object.keys(o).length+'개 항목을 저장소에 씁니다. 진행할까요?'))return;
+  autoBackup();
+  Object.keys(o).forEach(function(k){try{localStorage.setItem(k,o[k]);}catch(e){}});
+  alert('복원했습니다.');dump();
+}
+
+function fmtTs(ts){var d=new Date(+ts);return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2)+' '+('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2);}
+function bakSummary(v){
+  try{var o=JSON.parse(v);var n=Object.keys(o).length;var extra='';
+    try{var pr=JSON.parse(o['glim_app_prog_v173']||'{}');var st=0;Object.keys(pr).forEach(function(k){st+=Object.keys((pr[k]||{}).stars||{}).length;});extra=' · 클리어 기록 '+st+'개';}catch(e){}
+    return n+'개 항목'+extra;
+  }catch(e){return '(해석 불가)';}
+}
+function renderBaks(){
+  var el=document.getElementById('bakList');if(!el)return;
+  var rows=[];
+  for(var i=0;i<localStorage.length;i++){
+    var k=localStorage.key(i);
+    var m=/^glim_bak_(.+)_(\d+)$/.exec(k);
+    if(m){rows.push({k:k,kind:'전환 직전 자동 백업',sid:m[1],when:fmtTs(m[2]),ord:+m[2]});continue;}
+    var m2=/^glim_stu_(.+)$/.exec(k);
+    if(m2){rows.push({k:k,kind:'학생 서랍(전환 시 보관)',sid:m2[1],when:'',ord:9e15});}
+  }
+  if(!rows.length){el.innerHTML='<small>자동 백업이 없습니다. 아래 서버 복구(2·3단계)를 이용하세요.</small>';return;}
+  rows.sort(function(a,b){return b.ord-a.ord;});
+  var h='<table><tr><th>종류</th><th>학생</th><th>시각</th><th>내용</th><th></th></tr>';
+  rows.forEach(function(r,i){
+    h+='<tr><td>'+r.kind+'</td><td><b>'+esc(r.sid)+'</b></td><td>'+r.when+'</td><td><small>'+bakSummary(localStorage.getItem(r.k))+'</small></td>'+
+       '<td><button onclick="restoreBak('+i+')">이걸로 복구</button></td></tr>';
+  });
+  h+='</table>';
+  el.innerHTML=h;
+  window.__baks=rows;
+}
+function restoreBak(i){
+  var r=(window.__baks||[])[i];if(!r)return;
+  if(!confirm('학생 '+r.sid+'의 백업으로 현재 저장소를 덮어씁니다.\n(실행 전 현재 상태도 자동 백업됩니다)\n진행할까요?'))return;
+  autoBackup();
+  var o;try{o=JSON.parse(localStorage.getItem(r.k));}catch(e){alert('백업 해석 실패');return;}
+  Object.keys(o).forEach(function(k){try{localStorage.setItem(k,o[k]);}catch(e){}});
+  try{localStorage.setItem('glim_sid',String(r.sid));}catch(e){}
+  alert('복구 완료!\n게임(index.html)을 완전히 닫았다 다시 열고, 학생 번호 '+r.sid+'을(를) 입력하세요.');
+  dump();renderBaks();
+}
+
+dump();renderBaks();
+</script>
+</body>
+</html>
